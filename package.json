@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "countries-list": "^3.4.1",
+    "country-list": "^2.4.1"
+  }
+}
