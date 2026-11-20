@@ -1,12 +1,12 @@
+import { Link } from "react-router-dom";
+import Brand from "../components/Brand";
+
 function Terms() {
   return (
     <div className="terms-page">
       <div className="terms-card">
         <div className="terms-header">
-          <div className="brand">
-            <div className="brand-mark">S</div>
-            <span className="brand-name">SpendIndix</span>
-          </div>
+          <Brand />
 
           <h1>Terms and Conditions</h1>
 
@@ -117,13 +117,9 @@ function Terms() {
         </div>
 
         <div className="terms-footer">
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => window.history.back()}
-          >
+          <Link to="/register" className="primary-button">
             Back to Registration
-          </button>
+          </Link>
         </div>
       </div>
     </div>

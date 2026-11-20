@@ -21,7 +21,7 @@ export async function loadCurrencyOptions() {
     const countryNames = [];
 
     Object.entries(countries).forEach(
-      ([countryCode, countryData]) => {
+      ([, countryData]) => {
         if (
           Array.isArray(countryData.currency) &&
           countryData.currency.includes(currencyCode)

@@ -1,7 +1,85 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import Brand from "../components/Brand";
+import { useAuth } from "../context/AuthContext";
+import {
+  clearNextSignInRememberMe,
+  persistCurrentAuthSession,
+  setNextSignInRememberMe,
+  supabase,
+} from "../lib/supabaseClient";
+
+const EMAIL_PATTERN = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
+function getFieldError(fieldName, value) {
+  if (fieldName === "email") {
+    const email = value.trim();
+
+    if (!email) {
+      return "Email Address is required.";
+    }
+
+    if (!EMAIL_PATTERN.test(email)) {
+      return "Please enter a valid email address.";
+    }
+  }
+
+  if (fieldName === "password" && !value) {
+    return "Password is required.";
+  }
+
+  return "";
+}
+
+function getLoginErrorMessage(error) {
+  const errorCode =
+    typeof error?.code === "string" ? error.code.toLowerCase() : "";
+  const errorMessage =
+    typeof error?.message === "string" ? error.message.toLowerCase() : "";
+
+  if (
+    errorCode === "email_not_confirmed" ||
+    errorMessage.includes("email not confirmed")
+  ) {
+    return "Please confirm your email address before logging in. Check your inbox for the confirmation link.";
+  }
+
+  if (
+    error?.status === 429 ||
+    errorCode.includes("rate_limit") ||
+    /too many requests|rate limit/.test(errorMessage)
+  ) {
+    return "Too many login attempts. Please wait a moment before trying again.";
+  }
+
+  if (
+    error?.name === "AuthRetryableFetchError" ||
+    /network|failed to fetch|fetch failed|load failed|timeout/.test(
+      errorMessage,
+    )
+  ) {
+    return "Unable to connect right now. Check your connection and try again.";
+  }
+
+  if (
+    errorCode === "invalid_credentials" ||
+    /invalid login credentials|invalid credentials/.test(errorMessage)
+  ) {
+    return "Email or password is incorrect.";
+  }
+
+  return "We couldn't log you in right now. Please try again.";
+}
 
 function Login() {
+  const navigate = useNavigate();
+  const { session } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [googleSignInError, setGoogleSignInError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [authenticatedUserId, setAuthenticatedUserId] = useState(null);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -11,6 +89,12 @@ function Login() {
 
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
+
+  useEffect(() => {
+    if (authenticatedUserId && session?.user?.id === authenticatedUserId) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [authenticatedUserId, session, navigate]);
 
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
@@ -27,37 +111,23 @@ function Login() {
       [name]: true,
     }));
 
-    setErrors((previousErrors) => ({
-      ...previousErrors,
-      [name]: "",
-    }));
+    if (name === "email" || name === "password") {
+      setErrors((previousErrors) => ({
+        ...previousErrors,
+        [name]: getFieldError(name, updatedValue),
+      }));
+      setLoginError("");
+    }
   };
 
   const validateSingleField = (fieldName) => {
     const newErrors = { ...errors };
+    const error = getFieldError(fieldName, formData[fieldName]);
 
-    if (fieldName === "email") {
-      const email = formData.email.trim();
-
-      if (!email) {
-        newErrors.email = "Email Address is required.";
-      } else if (
-        !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(
-          email
-        )
-      ) {
-        newErrors.email = "Please enter a valid email address.";
-      } else {
-        delete newErrors.email;
-      }
-    }
-
-    if (fieldName === "password") {
-      if (!formData.password) {
-        newErrors.password = "Password is required.";
-      } else {
-        delete newErrors.password;
-      }
+    if (error) {
+      newErrors[fieldName] = error;
+    } else {
+      delete newErrors[fieldName];
     }
 
     setErrors(newErrors);
@@ -77,21 +147,12 @@ function Login() {
   const validateForm = () => {
     const newErrors = {};
 
-    const email = formData.email.trim();
-
-    if (!email) {
-      newErrors.email = "Email Address is required.";
-    } else if (
-      !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(
-        email
-      )
-    ) {
-      newErrors.email = "Please enter a valid email address.";
-    }
-
-    if (!formData.password) {
-      newErrors.password = "Password is required.";
-    }
+    ["email", "password"].forEach((fieldName) => {
+      const error = getFieldError(fieldName, formData[fieldName]);
+      if (error) {
+        newErrors[fieldName] = error;
+      }
+    });
 
     return newErrors;
   };
@@ -108,39 +169,104 @@ function Login() {
     return "form-input input-success";
   };
 
-  const handleSubmit = (event) => {
-  event.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
 
-  const validationErrors = validateForm();
+    if (isSubmitting) {
+      return;
+    }
 
-  setErrors(validationErrors);
+    const validationErrors = validateForm();
+    setErrors(validationErrors);
+    setTouched((previousTouched) => ({
+      ...previousTouched,
+      email: true,
+      password: true,
+    }));
+    setLoginError("");
+    setAuthenticatedUserId(null);
 
-  setTouched((previousTouched) => ({
-    ...previousTouched,
-    email: true,
-    ...(formData.password ? {} : { password: true }),
-  }));
+    if (Object.keys(validationErrors).length > 0) {
+      return;
+    }
 
-  if (Object.keys(validationErrors).length > 0) {
-    return;
-  }
+    setIsSubmitting(true);
 
-  alert("Login form is valid!");
-};
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: formData.email.trim(),
+        password: formData.password,
+      });
+
+      if (error) {
+        setLoginError(getLoginErrorMessage(error));
+        return;
+      }
+
+      if (!data.session || !data.user) {
+        setLoginError("We couldn't start your session. Please try again.");
+        return;
+      }
+
+      if (!persistCurrentAuthSession(formData.rememberMe)) {
+        setLoginError(
+          "You are signed in, but we couldn't apply the Remember Me setting. Please try again.",
+        );
+        return;
+      }
+
+      setAuthenticatedUserId(data.user.id);
+    } catch (error) {
+      setLoginError(getLoginErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    setGoogleSignInError("");
+    setNextSignInRememberMe(formData.rememberMe);
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`,
+        },
+      });
+
+      if (error) {
+        clearNextSignInRememberMe();
+        setGoogleSignInError(
+          "We couldn't start Google sign-in. Please try again.",
+        );
+        setIsGoogleLoading(false);
+      }
+    } catch {
+      clearNextSignInRememberMe();
+      setGoogleSignInError(
+        "We couldn't start Google sign-in. Please try again.",
+      );
+      setIsGoogleLoading(false);
+    }
+  };
+
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <div className="brand">
-          <div className="brand-mark">S</div>
-          <span className="brand-name">SpendIndix</span>
-        </div>
+        <Brand />
 
         <div className="auth-header">
           <h1>Welcome back</h1>
           <p>Login to your SpendIndix account.</p>
         </div>
 
-        <form className="register-form" onSubmit={handleSubmit}>
+        <form
+          className="register-form"
+          onSubmit={handleSubmit}
+          noValidate
+        >
           {/* Email */}
           <div className="form-group">
             <label htmlFor="email">Email Address</label>
@@ -148,16 +274,20 @@ function Login() {
             <input
               id="email"
               name="email"
-              type="text"
+              type="email"
               value={formData.email}
               onChange={handleChange}
               onBlur={handleBlur}
               placeholder="Enter your email address"
               className={getInputClass("email")}
+              aria-invalid={Boolean(errors.email)}
+              aria-describedby={errors.email ? "login-email-error" : undefined}
             />
 
             {errors.email && (
-              <p className="form-error">{errors.email}</p>
+              <p id="login-email-error" className="form-error">
+                {errors.email}
+              </p>
             )}
           </div>
 
@@ -175,6 +305,10 @@ function Login() {
                 onBlur={handleBlur}
                 placeholder="Enter your password"
                 className={getInputClass("password")}
+                aria-invalid={Boolean(errors.password)}
+                aria-describedby={
+                  errors.password ? "login-password-error" : undefined
+                }
               />
 
               <button
@@ -224,7 +358,9 @@ function Login() {
             </div>
 
             {errors.password && (
-              <p className="form-error">{errors.password}</p>
+              <p id="login-password-error" className="form-error">
+                {errors.password}
+              </p>
             )}
           </div>
 
@@ -240,22 +376,38 @@ function Login() {
               <span>Remember Me</span>
             </label>
 
-            <a href="/forgot-password" className="forgot-link">
+            <Link to="/forgot-password" className="forgot-link">
               Forgot Password?
-            </a>
+            </Link>
           </div>
 
           {/* Login */}
-          <button type="submit" className="primary-button">
-            Login
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={isSubmitting}
+            aria-busy={isSubmitting}
+          >
+            {isSubmitting ? "Logging in..." : "Login"}
           </button>
+          {loginError && (
+            <p className="form-error" role="alert">
+              {loginError}
+            </p>
+          )}
 
           <div className="divider">
             <span>OR</span>
           </div>
 
           {/* Google Login */}
-          <button type="button" className="google-button">
+          <button
+            type="button"
+            className="google-button"
+            onClick={handleGoogleSignIn}
+            disabled={isGoogleLoading}
+            aria-busy={isGoogleLoading}
+          >
             <svg
               width="20"
               height="20"
@@ -280,15 +432,24 @@ function Login() {
               />
             </svg>
 
-            <span>Continue with Google</span>
+            <span>
+              {isGoogleLoading
+                ? "Connecting to Google..."
+                : "Continue with Google"}
+            </span>
           </button>
+          {googleSignInError && (
+            <p className="form-error" role="alert">
+              {googleSignInError}
+            </p>
+          )}
 
           {/* Registration Link */}
           <p className="login-text">
             Don't have an account?{" "}
-            <a href="/register" className="login-link">
+            <Link to="/register" className="login-link">
               Register
-            </a>
+            </Link>
           </p>
         </form>
       </section>

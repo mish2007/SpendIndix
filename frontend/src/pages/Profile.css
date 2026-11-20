@@ -1,0 +1,132 @@
+﻿.profile-page {
+  display: grid;
+  min-width: 0;
+  gap: 25px;
+  padding-bottom: 24px;
+  animation: page-enter 180ms ease-out both;
+}
+
+.profile-page-heading h1 {
+  margin: 0;
+  color: var(--spendindix-text);
+  font-size: clamp(26px, 3vw, 33px);
+  font-weight: 690;
+  letter-spacing: -0.045em;
+  line-height: 1.2;
+}
+
+.profile-page-heading .dashboard-page-subtitle {
+  margin-top: 9px;
+}
+
+.profile-card {
+  width: min(100%, 760px);
+  overflow: hidden;
+  border: 1px solid var(--spendindix-border);
+  border-radius: var(--spendindix-radius);
+  background: var(--spendindix-surface);
+  box-shadow: 0 8px 24px rgba(23, 74, 50, 0.035);
+}
+
+.profile-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 19px;
+  padding: clamp(22px, 4vw, 34px);
+  border-bottom: 1px solid var(--spendindix-border);
+}
+
+.profile-person-icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #d9e7d5;
+  border-radius: 50%;
+  background: var(--spendindix-soft);
+  color: var(--spendindix-primary-dark);
+}
+
+.profile-person-icon svg {
+  width: 29px;
+  height: 29px;
+}
+
+.profile-identity-copy {
+  min-width: 0;
+}
+
+.profile-identity-copy h2 {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--spendindix-text);
+  font-size: clamp(20px, 3vw, 26px);
+  font-weight: 690;
+  letter-spacing: -0.035em;
+}
+
+.profile-identity-copy p {
+  overflow-wrap: anywhere;
+  margin: 6px 0 0;
+  color: var(--spendindix-muted);
+  font-size: 14px;
+}
+
+.profile-details {
+  display: grid;
+  margin: 0;
+  padding: 4px clamp(22px, 4vw, 34px);
+}
+
+.profile-detail {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(125px, 0.75fr) minmax(0, 1.25fr);
+  gap: 20px;
+  padding: 19px 0;
+  border-bottom: 1px solid var(--spendindix-border);
+}
+
+.profile-detail:last-child {
+  border-bottom: 0;
+}
+
+.profile-detail dt {
+  color: var(--spendindix-muted);
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.profile-detail dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--spendindix-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 520px) {
+  .profile-identity {
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .profile-person-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .profile-person-icon svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .profile-detail {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+}

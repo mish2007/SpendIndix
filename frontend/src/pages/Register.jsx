@@ -1,10 +1,60 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import Brand from "../components/Brand";
 import { loadCurrencyOptions } from "../data/currencyData";
+import { supabase } from "../lib/supabaseClient";
+
+function getRegistrationErrorMessage(error) {
+  const errorCode =
+    typeof error?.code === "string" ? error.code.toLowerCase() : "";
+  const errorMessage =
+    typeof error?.message === "string" ? error.message.toLowerCase() : "";
+
+  if (
+    errorCode === "user_already_exists" ||
+    errorCode === "email_exists" ||
+    /already (registered|exists)/.test(errorMessage)
+  ) {
+    return "An account with this email may already exist. Try logging in or resetting your password.";
+  }
+
+  if (
+    errorCode === "weak_password" ||
+    (errorMessage.includes("password") &&
+      /weak|short|characters|strength/.test(errorMessage))
+  ) {
+    return "Choose a stronger password that meets the password requirements.";
+  }
+
+  if (
+    errorCode === "email_address_invalid" ||
+    errorMessage.includes("invalid email")
+  ) {
+    return "Please enter a valid email address.";
+  }
+
+  if (errorCode === "over_email_send_rate_limit" || error?.status === 429) {
+    return "Too many registration attempts. Please wait before trying again.";
+  }
+
+  if (
+    error?.name === "AuthRetryableFetchError" ||
+    /network|failed to fetch|fetch failed|load failed/.test(errorMessage)
+  ) {
+    return "We couldn't reach the registration service. Check your connection and try again.";
+  }
+
+  return "We couldn't create your account right now. Please try again.";
+}
 
 function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [googleSignInError, setGoogleSignInError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [registrationError, setRegistrationError] = useState("");
+  const [registrationSuccess, setRegistrationSuccess] = useState(false);
 
   const [currencyOptions, setCurrencyOptions] = useState([]);
   const [currencyLoading, setCurrencyLoading] = useState(true);
@@ -69,6 +119,8 @@ function Register() {
       ...previousErrors,
       [name]: "",
     }));
+
+    setRegistrationError("");
   };
 
   const handleBlur = (event) => {
@@ -152,6 +204,14 @@ function Register() {
       }
     }
 
+    if (fieldName === "currency") {
+      if (!formData.currency) {
+        newErrors.currency = "Please select a currency.";
+      } else {
+        delete newErrors.currency;
+      }
+    }
+
     setErrors(newErrors);
   };
 
@@ -204,6 +264,10 @@ function Register() {
         "Please agree to the Terms and Conditions.";
     }
 
+    if (!formData.currency) {
+      newErrors.currency = "Please select a currency.";
+    }
+
     return newErrors;
   };
 
@@ -219,8 +283,12 @@ function Register() {
     return "form-input input-success";
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (isSubmitting) {
+      return;
+    }
 
     const validationErrors = validateForm();
 
@@ -229,8 +297,11 @@ function Register() {
       email: true,
       password: true,
       confirmPassword: true,
+      currency: true,
       termsAccepted: true,
     });
+
+    setRegistrationError("");
 
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
@@ -239,25 +310,108 @@ function Register() {
 
     setErrors({});
 
-    alert("Registration form is valid!");
+    setIsSubmitting(true);
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: formData.email.trim(),
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.Name.trim(),
+            currency: formData.currency,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        setRegistrationError(getRegistrationErrorMessage(error));
+        return;
+      }
+
+      if (data.user?.identities?.length === 0) {
+        setRegistrationError(
+          "An account with this email may already exist. Try logging in or resetting your password.",
+        );
+        return;
+      }
+
+      if (!data.user) {
+        setRegistrationError(
+          "We couldn't create your account right now. Please try again.",
+        );
+        return;
+      }
+
+      setRegistrationSuccess(true);
+    } catch (error) {
+      setRegistrationError(getRegistrationErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    setGoogleSignInError("");
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`,
+        },
+      });
+
+      if (error) {
+        setGoogleSignInError(
+          "We couldn't start Google sign-in. Please try again.",
+        );
+        setIsGoogleLoading(false);
+      }
+    } catch {
+      setGoogleSignInError(
+        "We couldn't start Google sign-in. Please try again.",
+      );
+      setIsGoogleLoading(false);
+    }
   };
 
   return (
     <main className="auth-page">
-      <section className="auth-card">
-        <div className="brand">
-          <div className="brand-mark">S</div>
-          <span className="brand-name">SpendIndix</span>
-        </div>
+      <section className="auth-card auth-card-register">
+        <Brand />
 
         <div className="auth-header">
-          <h1>Create your account</h1>
+          <h1>
+            {registrationSuccess ? "Check your email" : "Create your account"}
+          </h1>
           <p>
-            Start managing your personal finances with SpendIndix.
+            {registrationSuccess
+              ? "Confirm your email address to finish creating your account."
+              : "Start managing your personal finances with SpendIndix."}
           </p>
         </div>
 
-        <form className="register-form" onSubmit={handleSubmit}>
+        {registrationSuccess && (
+          <div className="forgot-success" role="status">
+            <div className="success-icon">✓</div>
+            <p>
+              Your account has been created. Please check your email and
+              confirm your account before logging in.
+            </p>
+            <Link to="/login" className="primary-button">
+              Back to Login
+            </Link>
+          </div>
+        )}
+
+        <form
+          className="register-form"
+          onSubmit={handleSubmit}
+          hidden={registrationSuccess}
+        >
           {/* Name */}
           <div className="form-group">
             <label htmlFor="Name">Name</label>
@@ -446,7 +600,9 @@ function Register() {
                         <div className="currency-selector">
               <button
                 type="button"
-                className="currency-input"
+                className={`currency-input${errors.currency ? " input-error" : ""}`}
+                aria-invalid={Boolean(errors.currency)}
+                aria-describedby={errors.currency ? "currency-error" : undefined}
                 onClick={() =>
                   setShowCurrencyDropdown(!showCurrencyDropdown)
                 }
@@ -494,6 +650,10 @@ function Register() {
     ...previousData,
     currency: `${currency.name} (${currency.code})`,
   }));
+    setErrors((previousErrors) => ({
+      ...previousErrors,
+      currency: "",
+    }));
   setShowCurrencyDropdown(false);
   setCurrencySearch("");
 }}
@@ -512,6 +672,11 @@ function Register() {
                 </div>
               )}
             </div>
+            {errors.currency && (
+              <p id="currency-error" className="form-error">
+                {errors.currency}
+              </p>
+            )}
           </div>
           
           {/* Terms and Conditions */}
@@ -541,16 +706,32 @@ function Register() {
           </div>
 
           {/* Sign Up */}
-          <button type="submit" className="primary-button">
-            Sign Up
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={isSubmitting}
+            aria-busy={isSubmitting}
+          >
+            {isSubmitting ? "Creating account..." : "Sign Up"}
           </button>
+          {registrationError && (
+            <p className="form-error" role="alert">
+              {registrationError}
+            </p>
+          )}
 
           <div className="divider">
             <span>OR</span>
           </div>
 
           {/* Google Sign Up */}
-         <button type="button" className="google-button">
+         <button
+           type="button"
+           className="google-button"
+           onClick={handleGoogleSignIn}
+           disabled={isGoogleLoading}
+           aria-busy={isGoogleLoading}
+         >
   <svg
     width="20"
     height="20"
@@ -575,8 +756,17 @@ function Register() {
     />
   </svg>
 
-  <span>Continue with Google</span>
+  <span>
+    {isGoogleLoading
+      ? "Connecting to Google..."
+      : "Continue with Google"}
+  </span>
 </button>
+          {googleSignInError && (
+            <p className="form-error" role="alert">
+              {googleSignInError}
+            </p>
+          )}
 
           {/* Login */}
           <p className="login-text">

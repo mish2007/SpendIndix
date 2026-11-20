@@ -1,84 +1,169 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import Brand from "../components/Brand";
+import { supabase } from "../lib/supabaseClient";
+
+const EMAIL_PATTERN = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
+function getEmailError(email) {
+  const trimmedEmail = email.trim();
+
+  if (!trimmedEmail) {
+    return "Email Address is required.";
+  }
+
+  if (!EMAIL_PATTERN.test(trimmedEmail)) {
+    return "Please enter a valid email address.";
+  }
+
+  return "";
+}
+
+function isUnknownAccountError(error) {
+  const code = typeof error?.code === "string" ? error.code.toLowerCase() : "";
+  const message =
+    typeof error?.message === "string" ? error.message.toLowerCase() : "";
+
+  return (
+    code === "user_not_found" ||
+    /user (not found|does not exist)/.test(message)
+  );
+}
+
+function getRequestErrorMessage(error) {
+  const code = typeof error?.code === "string" ? error.code.toLowerCase() : "";
+  const message =
+    typeof error?.message === "string" ? error.message.toLowerCase() : "";
+
+  if (
+    error?.status === 429 ||
+    code.includes("rate_limit") ||
+    /too many requests|rate limit/.test(message)
+  ) {
+    return "Too many reset requests. Please wait a moment before trying again.";
+  }
+
+  if (
+    error?.name === "AuthRetryableFetchError" ||
+    /network|failed to fetch|fetch failed|load failed|timeout/.test(message)
+  ) {
+    return "We couldn't connect to the password reset service. Check your connection and try again.";
+  }
+
+  return "We couldn't send reset instructions right now. Please try again.";
+}
 
 function ForgotPassword() {
   const [email, setEmail] = useState("");
-  const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [requestError, setRequestError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionInProgress = useRef(false);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
-    const trimmedEmail = email.trim();
-
-    if (!trimmedEmail) {
-      setError("Email Address is required.");
-      setSubmitted(false);
+    if (submissionInProgress.current) {
       return;
     }
 
-    if (
-      !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(
-        trimmedEmail
-      )
-    ) {
-      setError("Please enter a valid email address.");
-      setSubmitted(false);
+    const emailError = getEmailError(email);
+    if (emailError) {
+      setEmailError(emailError);
       return;
     }
 
-    setError("");
-    setSubmitted(true);
+    submissionInProgress.current = true;
+    setIsSubmitting(true);
+    setEmailError("");
+    setRequestError("");
+
+    try {
+      const { error: requestError } =
+        await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
+
+      if (requestError && !isUnknownAccountError(requestError)) {
+        setRequestError(getRequestErrorMessage(requestError));
+        return;
+      }
+
+      setSubmitted(true);
+    } catch (requestError) {
+      setRequestError(getRequestErrorMessage(requestError));
+    } finally {
+      submissionInProgress.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <div className="brand">
-          <div className="brand-mark">S</div>
-          <span className="brand-name">SpendIndix</span>
-        </div>
+        <Brand />
 
         <div className="auth-header">
           <h1>Forgot Password?</h1>
 
-          <p>
-            Enter your registered email address and we'll help you
-            reset your password.
-          </p>
+          <p>Enter your email address and we'll help you reset your password.</p>
         </div>
 
         {!submitted ? (
-          <form className="register-form" onSubmit={handleSubmit}>
+          <form
+            className="register-form"
+            onSubmit={handleSubmit}
+            noValidate
+          >
             <div className="form-group">
-              <label htmlFor="forgot-email">
-                Email Address
-              </label>
+              <label htmlFor="forgot-email">Email Address</label>
 
               <input
                 id="forgot-email"
                 name="email"
-                type="text"
+                type="email"
                 value={email}
                 onChange={(event) => {
-                  setEmail(event.target.value);
-                  setError("");
+                  const nextEmail = event.target.value;
+                  setEmail(nextEmail);
+                  setEmailError((currentError) =>
+                    currentError ? getEmailError(nextEmail) : "",
+                  );
+                  setRequestError("");
                 }}
+                autoComplete="email"
+                required
                 placeholder="Enter your email address"
+                aria-invalid={Boolean(emailError)}
+                aria-describedby={
+                  emailError ? "forgot-email-error" : undefined
+                }
                 className={
-                  error
-                    ? "form-input input-error"
-                    : "form-input"
+                  emailError ? "form-input input-error" : "form-input"
                 }
               />
 
-              {error && (
-                <p className="form-error">{error}</p>
+              {emailError && (
+                <p id="forgot-email-error" className="form-error" role="alert">
+                  {emailError}
+                </p>
               )}
             </div>
 
-            <button type="submit" className="primary-button">
-              Send Reset Instructions
+            {requestError && (
+              <p className="form-error" role="alert">
+                {requestError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+            >
+              {isSubmitting ? "Sending..." : "Send Reset Instructions"}
             </button>
 
             <p className="login-text">
@@ -94,9 +179,9 @@ function ForgotPassword() {
 
             <h2>Check your email</h2>
 
-            <p>
-              If an account exists with this email address, reset
-              instructions will be sent to you.
+            <p role="status" aria-live="polite">
+              If an account exists for this address, we'll send a password
+              reset link. Check your inbox and Spam or Junk folder.
             </p>
 
             <Link to="/login" className="primary-button">
